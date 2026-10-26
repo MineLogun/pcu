@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>장애물 피하기 게임</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial;
+        }
+
+        canvas {
+            border: 2px solid black;
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>장애물 피하기 게임</h1>
+    <p>점수: <span id="score">0</span> | 체력: <span id="hp">100</span></p>
+    <p>조작: 방향키 ↑ ↓ ← →</p>
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const scoreText = document.getElementById('score');
+        const hpText = document.getElementById('hp');
+
+        const player = {
+            x: 280,
+            y: 330,
+            width: 40,
+            height: 40,
+            speed: 4
+        };
+
+        let upSpeed = 0;
+        let rocks = [];
+        let score = 0;
+        let hp = 100;
+        let gameOver = false;
+        let frameCount = 0; // 장애물 생성을 위한 프레임 카운터
+        const keys = {};
+
+        document.addEventListener('keydown', function(event) {
+            keys[event.key] = true;
+        });
+        document.addEventListener('keyup', function(event) {
+            keys[event.key] = false;
+        });
+
+        function drawPlayer() {
+            ctx.fillStyle = 'blue';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+        }
+
+        function movePlayer() {
+            if (keys['ArrowUp']) player.y -= player.speed;
+            if (keys['ArrowDown']) player.y += player.speed;
+            if (keys['ArrowLeft']) player.x -= player.speed;
+            if (keys['ArrowRight']) player.x += player.speed;
+            
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width; 
+            if (player.y < 0) player.y = 0;
+            if (player.y + player.height > canvas.height) player.y = canvas.height - player.height;
+        }
+
+        function createRock(){
+            const rock = {
+                x: Math.random()*(canvas.width - 30),
+                y: -30,
+                width: 30,
+                height: 30,
+                speed: Math.random() * 3 + 2,
+                damage: 20
+            };
+            rocks.push(rock);
+        }
+
+        function drawRocks(){
+            {
+                ctx.fillStyle = "gray";
+            for (let rock of rocks){
+                ctx.beginPath();
+                ctx.arc(
+                    rock.x + rock.width / 2,
+                    rock.y + rock.height / 2,
+                    rock.width / 2,
+                    0,
+                    Math.PI*2
+                );
+                ctx.fill();
+            }
+            }
+            
+        }
+
+        function moveRocks(){
+            for(let rock of rocks){
+                rock.y += rock.speed * upSpeed;
+            }
+            
+            // 아래에서 위로 배열을 순회하며 화면 밖으로 나간 장애물 처리
+            for (let i = rocks.length - 1; i >= 0; i--){
+                if (rocks[i].y > canvas.height) {
+                    rocks.splice(i, 1);
+                    score++;
+                    scoreText.textContent = score;
+                }
+            }
+        }
+
+        function checkCollision(){
+            for (let i = rocks.length - 1; i >= 0; i--){
+                const rock = rocks[i];
+                
+                if(player.x < rock.x + rock.width &&
+                    player.x + player.width > rock.x &&
+                    player.y < rock.y + rock.height &&
+                    player.y + player.height > rock.y){
+                    
+                    hp -= rock.damage;
+                    if(hp < 0) hp = 0;
+                    
+                    hpText.textContent = hp; // gp -> hp 오타 수정
+                    rocks.splice(i, 1);
+                    
+                    if (hp <= 0) {
+                        endGame();
+                    }
+                }
+            }
+        }
+
+        function drawHpBar(){
+            ctx.fillStyle = "lightgray";
+            ctx.fillRect(20, 20, 200, 20);
+            ctx.fillStyle = "lightgreen";
+            ctx.fillRect(20, 20, hp * 2, 20);
+            ctx.strokeStyle = "black";
+            ctx.strokeRect(20, 20, 200, 20);
+        }
+
+        function endGame(){
+            gameOver = true;
+            
+            ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.font = "32px Arial";
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+
+            ctx.fillText("게임 오버", canvas.width/2, canvas.height/2 - 30);
+            ctx.fillText("최종 점수: " + score, canvas.width / 2, canvas.height/2 + 30); // 오타 수정
+        }
+
+        function gameLoop() {
+            if (gameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 25프레임마다 주기적으로 새로운 장애물 생성
+            frameCount++;
+            if (frameCount % 25 === 0) {
+                createRock();
+            }
+            upSpeed += 0.001;
+            movePlayer();
+            drawPlayer();
+            moveRocks();
+            checkCollision();
+            drawRocks();
+            drawHpBar();
+
+            requestAnimationFrame(gameLoop);
+        }
+        
+        gameLoop();
+    </script>
+</body>
+
+</html>
