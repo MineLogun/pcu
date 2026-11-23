@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>RPG 이동 - 보석 찾기 퀘스트</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            border: 2px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>RPG 보석 찾기</h1>
+    <p>방향키: 이동 / NPC 근처에서 Space: 대화 / R: 다시 시작</p>
+    <canvas id="gameCanvas" width="640" height="480"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const tileSize = 40;
+
+        let gameClear = false;
+        let readyToClear = false; // [추가] 마지막 대사를 본 후 Space를 누르면 클리어 화면으로 넘어가기 위한 상태 변수
+        //이러면 시스템 상 space를 눌렀을 때 자동적으로 UI가 꺼지고 마무리 화면이 보이는 것 같습니다...아마도요.
+        let isGameOver = false;
+        let questStarted = false;
+        let isDialogOpen = false;
+        let message = "";
+        let gemCount = 0;
+
+        // 0: 길, 1: 벽, 2: 물, 3: 용암
+        const map = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1],
+            [1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 3, 1],
+            [1, 0, 3, 0, 1, 0, 0, 0, 3, 3, 1, 0, 0, 3, 3, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 2, 3, 1, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 3, 0, 0, 1, 1, 1, 0, 0, 1],
+            [1, 0, 3, 0, 0, 3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        function drawMap() {
+            for (let row = 0; row < map.length; row++) {
+                for (let col = 0; col < map[row].length; col++) {
+                    const tile = map[row][col];
+                    if (tile === 0) ctx.fillStyle = "lime";
+                    if (tile === 1) ctx.fillStyle = "brown";
+                    if (tile === 2) ctx.fillStyle = "#3498db";
+                    if (tile === 3) ctx.fillStyle = "red";
+                    ctx.fillRect(col * tileSize, row * tileSize, tileSize, tileSize);
+                    ctx.strokeStyle = "#777";
+                    ctx.strokeRect(col * tileSize, row * tileSize, tileSize, tileSize);
+                }
+            }
+        }
+
+        const npc = { x: 480, y: 280, width: 32, height: 32 };
+
+        function drawNPC() {
+            ctx.fillStyle = "purple";
+            ctx.fillRect(npc.x, npc.y, npc.width, npc.height);
+            ctx.fillStyle = "white";
+            ctx.fillRect(npc.x + 7, npc.y + 8, 5, 5);
+            ctx.fillRect(npc.x + 20, npc.y + 8, 5, 5);
+            if (isNearNPC() && !gameClear && !isDialogOpen) {
+                ctx.fillStyle = "black";
+                ctx.font = "14px Arial";
+                ctx.fillText("Space", npc.x - 5, npc.y - 8);
+            }
+        }
+
+        const player = { x: 80, y: 80, width: 30, height: 30, speed: 4 };
+
+        function drawPlayer() {
+            ctx.fillStyle = "red";
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.fillStyle = "white";
+            ctx.fillRect(player.x + 6, player.y + 8, 5, 5);
+            ctx.fillRect(player.x + 20, player.y + 8, 5, 5);
+        }
+
+        const keys = {};
+
+        document.addEventListener("keydown", function (event) {
+            keys[event.key] = true;
+
+            if (event.key.startsWith("Arrow") || event.code === "Space") {
+                event.preventDefault();
+            }
+            if (event.repeat) return;
+
+            if (event.code === "Space") talkToNPC();
+
+            if (event.key === "r" || event.key === "R") location.reload();
+        });
+        document.addEventListener("keyup", function (event) {
+            keys[event.key] = false;
+        });
+
+        function movePlayer() {
+            if (isDialogOpen || gameClear || isGameOver) return;
+
+            let nextX = player.x;
+            let nextY = player.y;
+
+            if (keys["ArrowLeft"]) nextX -= player.speed;
+            if (keys["ArrowRight"]) nextX += player.speed;
+            if (keys["ArrowUp"]) nextY -= player.speed;
+            if (keys["ArrowDown"]) nextY += player.speed;
+
+            if (!isWall(nextX, player.y)) player.x = nextX;
+            if (!isWall(player.x, nextY)) player.y = nextY;
+        }
+
+        function isWall(x, y) {
+            const left = Math.floor(x / tileSize);
+            const right = Math.floor((x + player.width - 1) / tileSize);
+            const top = Math.floor(y / tileSize);
+            const bottom = Math.floor((y + player.height - 1) / tileSize);
+
+            if (left < 0 || right >= map[0].length || !map[top] || !map[bottom]) return true;
+
+            return map[top][left] === 1
+                || map[top][right] === 1
+                || map[bottom][left] === 1
+                || map[bottom][right] === 1;
+        }
+
+        function isNearNPC() {
+            const dx = player.x + player.width / 2 - (npc.x + npc.width / 2);
+            const dy = player.y + player.height / 2 - (npc.y + npc.height / 2);
+            return Math.sqrt(dx * dx + dy * dy) < 70;
+        }
+
+        function checkLava() {
+            if (gameClear || isGameOver) return;
+
+            const left = Math.floor(player.x / tileSize);
+            const right = Math.floor((player.x + player.width - 1) / tileSize);
+            const top = Math.floor(player.y / tileSize);
+            const bottom = Math.floor((player.y + player.height - 1) / tileSize);
+
+            if (map[top][left] === 3 || map[top][right] === 3 ||
+                map[bottom][left] === 3 || map[bottom][right] === 3) {
+                isGameOver = true;
+            }
+        }
+
+        const gems = [
+            { x: 140, y: 300, taken: false },
+            { x: 340, y: 180, taken: false },
+            { x: 580, y: 60, taken: false },
+        ];
+
+        function drawInfo() {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 400, 640, 80);
+            ctx.fillStyle = "black";
+            ctx.font = "14px Arial";
+            ctx.fillText("보석: " + gemCount + "/3", 20, 435);
+
+            let goal = questStarted ? "돈 갖고와" : "주인 만나라";
+            if (gemCount === 3) goal = "주인에게 바쳐라";
+            if (gameClear) goal = "연명했다, 하루정도. (R키로 재시작)";
+            if (isGameOver) goal = "타버렸다, 재마저 남지 않았다. (R키로 재시작)"
+            ctx.fillText(goal, 170, 435);
+
+            ctx.fillText("방향키 이동 / Space 대화 / R 재시작", 20, 465);
+        }
+
+        function talkToNPC() {
+            if (gameClear || isGameOver) return;
+
+            if (isDialogOpen) {
+                isDialogOpen = false;
+                // 마지막 대사를 본 직후라면 클리어 화면으로 전환!
+                // 개인적으로 분석하였을 때, Dialog가 닫히면서 바뀐 true로 인해 마치는 화면이 정상 출력되는것 같습니다.
+                if (readyToClear) {
+                    gameClear = true;
+                }
+                return;
+            }
+
+            if (!isNearNPC()) return;
+
+            // 2. 대화창 열기
+            if (!questStarted) {
+                questStarted = true;
+                message = "돈챙겨 와라.";
+            } else if (gemCount === 3) {
+                message = "좋다, 하루정도는 살려주지";
+                readyToClear = true; // 다음 Space 입력 시 클리어 화면이 뜨도록 예약
+            }else {
+                message = "부족하군, 아직 " + (3 - gemCount) + "개나 남았단 말이다";
+            }
+            isDialogOpen = true;
+        }
+
+        function showDialog() {
+            if (!isDialogOpen) return;
+            ctx.fillStyle = "black";
+            ctx.fillRect(40, 330, 560, 100);
+
+            ctx.fillStyle = "white";
+            ctx.font = "18px Arial";
+            ctx.fillText("NPC: " + message, 60, 380);
+            ctx.fillText(readyToClear ? "Space: 엔딩 보기" : "Space: 닫기", 60, 410);
+        }
+
+        function drawGems() {
+            for (let gem of gems) {
+                if (gem.taken) continue;
+                ctx.fillStyle = "gold";
+                ctx.fillRect(gem.x - 10, gem.y - 10, 20, 20);
+            }
+        }
+
+        function checkGems() {
+            if (!questStarted || isDialogOpen || gameClear) return;
+
+            for (let gem of gems) {
+                const dx = player.x + player.width / 2 - gem.x;
+                const dy = player.y + player.height / 2 - gem.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (!gem.taken && distance < 25) {
+                    gem.taken = true;
+                    gemCount++;
+                }
+            }
+        }
+
+        function drawGameClear() {
+            if (!gameClear) return;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+            ctx.fillRect(0, 0, 640, 400);
+
+            ctx.fillStyle = "green";
+            ctx.font = "bold 40px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("연명했다..", 320, 190);
+
+            ctx.fillStyle = "white";
+            ctx.font = "18px Arial";
+            ctx.fillText("다음을 기다리며... (R키로 재시작)", 320, 235);
+            ctx.textAlign = "left";
+        }
+
+        function gameOver() {
+            if (!isGameOver) return;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+            ctx.fillRect(0, 0, 640, 400);
+
+            ctx.fillStyle = "red";
+            ctx.font = "bold 40px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("사망했다", 320, 190);
+
+            ctx.fillStyle = "white";
+            ctx.font = "18px Arial";
+            ctx.fillText("무능하군. (R키로 재시작)", 320, 235);
+            ctx.textAlign = "left";
+            
+        }
+
+        function gameLoop() {
+            movePlayer();
+            checkGems();
+            checkLava();
+            drawMap();
+            if(questStarted){
+                drawGems();
+            }
+            drawNPC();
+            drawPlayer();
+            drawInfo();
+            showDialog();
+            drawGameClear();
+            gameOver();
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();        
+    </script>
+</body>
+
+</html>
